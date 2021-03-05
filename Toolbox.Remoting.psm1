@@ -320,53 +320,6 @@ Function Open-ConnectionHC {
         Enter-PSSession $ComputerName -Authentication 'CredSsp' -Credential $Cred -ErrorAction Stop   
     }
 }
-Function Optimize-ExecutionOrderHC {
-    <# 
-    .SYNOPSIS
-        Sorts objects in a random order based on the property ComputerName.
-
-    .DESCRIPTION
-        Objects are sorted so that machines with the same ComputerName are not 
-        found one after the other. This function is beneficial before starting
-        PowerShell jobs. It allows for a better spread of the execution load of
-        jobs across multiple machines.
-
-    .PARAMETER Name
-        An array of objects that needs to get sorted. The property ComputerName
-        needs to be present to be able to sort.
-    #>
-
-    [OutputType([System.Collections.ArrayList])]
-    [CmdLetBinding()]
-    Param (
-        [Array]$Name
-    )
-    
-    Try {
-        if (-not $Name.ComputerName) {
-            throw 'The ComputerName property is mandatory.'
-        }
-
-        if ($ComputerQueues = $Name | Group-Object ComputerName | Sort-Object Count -Descending) {
-            $queue = [System.Collections.ArrayList]@()
-
-            for ($i = 0; $i -lt $ComputerQueues[0].Count; $i++) {
-                $ComputerQueues.Where( { $_.Group[$i] }).ForEach( {
-                        $null = $queue.Add($_.Group[$i])
-                    })
-            }
-
-            if ($Name.Count -ne $queue.Count) {
-                throw 'Not all jobs were correctly ordered.'
-            }
-
-            $queue
-        }
-    }
-    Catch {
-        throw "Failed sorting the array on ComputerName: $_"
-    }
-}
 Function Reset-SessionsHC {
     <# 
     .SYNOPSIS   
