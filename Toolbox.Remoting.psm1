@@ -539,13 +539,14 @@ Function Test-PsRemoting {
 Function Wait-MaxRunningJobsHC {
     <# 
     .SYNOPSIS   
-        Manage the amount of jobs that can be started at once.
+        Limit how many jobs can run at the same time
 
     .DESCRIPTION
-        Manage the amount of jobs that can be started at once. Wait for a specific amount of jobs to finish, before new ones can be started. We don't support more than 2 jobs simultaneously on the same server.
+        Only allow a specific quantity of jobs to run at the same time.
+        Also wait for launching new jobs when there is not enough free 
+        memory.
 
     .EXAMPLE
-        $maxConcurrentJobs = 5
         $jobs = @()
 
         $scriptBlock = {
@@ -553,13 +554,14 @@ Function Wait-MaxRunningJobsHC {
             Start-Sleep -Seconds 30
         }
 
-        foreach ($object in 0..20) {
-            Wait-MaxRunningJobsHC -Name $jobs -MaxThreads 3
-            Write-Verbose "start job $i"
+        foreach ($i in 1..20) {
+            Write-Verbose "Start job $i"
             $jobs += Start-Job -ScriptBlock $ScriptBlock
+            Wait-MaxRunningJobsHC -Name $jobs -MaxThreads 3
         }
 
-        Waits for the jobs in '$jobs', so there are maximum 3 jobs running at the same time and maximum 5 jobs on the same server.
+        Only allow 3 jobs to run at the same time. Wait to launch the next
+        job until one is finished.
     #>
     
     [CmdletBinding()]
