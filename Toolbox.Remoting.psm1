@@ -339,8 +339,8 @@ Function Reset-SessionsHC {
 
     Process {
         (Get-WmiObject -Class win32_process -ComputerName $ComputerName | 
-            Where-Object { $_.ProcessName -eq 'wsmprovhost.exe' } | 
-            Select-Object -First 1).terminate()
+        Where-Object { $_.ProcessName -eq 'wsmprovhost.exe' } | 
+        Select-Object -First 1).terminate()
     }
 }
 Function Set-RemoteSignedHC {
@@ -570,15 +570,25 @@ Function Wait-MaxRunningJobsHC {
         [Int]$MaxThreads
     )
 
+    Begin {
+        Function Get-FreeMemoryHC {
+            (Get-WmiObject win32_OperatingSystem).FreePhysicalMemory * 1KB
+        }
+        Function Get-RunningJobsHC {
+            @($Name).Where( { $_.State -eq 'Running' })
+        }
+    }
+
     Process {
-        $Running = @($Name).Where( { $_.State -eq 'Running' })
-        while (($Running.Count -ge $MaxThreads) -or 
-            ((($Running | Group-Object Location).Count) -contains 5)) {
+        while (
+            ((Get-FreeMemoryHC) -lt 1GB) -or
+            ((Get-RunningJobsHC).Count -ge $MaxThreads) 
+        ) {
             $null = Wait-Job -Job $Name -Any
-            $Running = @($Name).Where( { $_.State -eq 'Running' })
         }
     }
 }
+
 Workflow Get-PowerShellRemotingAndVersionHC {
     <# 
     .SYNOPSIS   
