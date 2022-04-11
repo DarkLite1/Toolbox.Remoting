@@ -545,8 +545,21 @@ Function Wait-MaxRunningJobsHC {
         Manage the amount of jobs that can be started at once. Wait for a specific amount of jobs to finish, before new ones can be started. We don't support more than 2 jobs simultaneously on the same server.
 
     .EXAMPLE
-        Wait-MaxRunningJobsHC -Name $Jobs -MaxThreads 4
-        Waits for the jobs in '$Jobs', so there are maximum 4 jobs running at the same time and maximum 5 jobs on the same server.
+        $maxConcurrentJobs = 5
+        $jobs = @()
+
+        $scriptBlock = {
+            Write-Output 'do work'
+            Start-Sleep -Seconds 30
+        }
+
+        foreach ($object in 0..20) {
+            Wait-MaxRunningJobsHC -Name $jobs -MaxThreads 3
+            Write-Verbose "start job $i"
+            $jobs += Start-Job -ScriptBlock $ScriptBlock
+        }
+
+        Waits for the jobs in '$jobs', so there are maximum 3 jobs running at the same time and maximum 5 jobs on the same server.
     #>
     
     [CmdletBinding()]
