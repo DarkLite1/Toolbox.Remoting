@@ -565,7 +565,7 @@ Function Wait-MaxRunningJobsHC {
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory)]
-        [Object]$Name,
+        [System.Management.Automation.Job[]]$Name,
         [Parameter(Mandatory)]
         [Int]$MaxThreads
     )
