@@ -546,6 +546,17 @@ Function Wait-MaxRunningJobsHC {
         Also wait for launching new jobs when there is not enough free 
         memory.
 
+    .PARAMETER Name
+        Name of the variable holding the jobs returned by 'Start-Job' or
+        'Invoke-Command -AsJob'.
+
+    .PARAMETER MaxThreads
+        The number of jobs that are allowed to run at the same time.
+
+    .PARAMETER FreeMemory
+        The amount of memory in GB that needs to be free before a new job
+        is allowed to start.
+
     .EXAMPLE
         $jobs = @()
 
@@ -569,7 +580,8 @@ Function Wait-MaxRunningJobsHC {
         [Parameter(Mandatory)]
         [System.Management.Automation.Job[]]$Name,
         [Parameter(Mandatory)]
-        [Int]$MaxThreads
+        [Int]$MaxThreads,
+        [Int]$FreeMemory = 1GB
     )
 
     Begin {
@@ -583,7 +595,7 @@ Function Wait-MaxRunningJobsHC {
 
     Process {
         while (
-            ((Get-FreeMemoryHC) -lt 1GB) -or
+            ((Get-FreeMemoryHC) -lt $FreeMemory) -or
             ((Get-RunningJobsHC).Count -ge $MaxThreads) 
         ) {
             $null = Wait-Job -Job $Name -Any
