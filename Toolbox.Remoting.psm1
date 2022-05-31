@@ -71,9 +71,10 @@ Function Set-ComputerConfigurationHC {
     Process {
         $PSRemotingTestedComputers = $ComputerName | Test-PsRemoting
 
-        $PSRemotingTestedComputers | Where-Object Enabled -EQ $false | ForEach-Object {
+        $PSRemotingTestedComputers | Where-Object { -not $_.Enabled } | 
+        ForEach-Object {
             if (Test-Connection $_.ComputerName -Quiet) {
-                Write-Verbose "'$($_.ComputerName)' Enabvle PowerShell remoting"
+                Write-Verbose "'$($_.ComputerName)' Enable PowerShell remoting"
 
                 Start-Process -FilePath $PSExec -ArgumentList  "\\$($_.ComputerName) -s powershell Enable-PSRemoting -Force"
 
@@ -84,7 +85,9 @@ Function Set-ComputerConfigurationHC {
             }
         }
 
-        $EnabledComputerNames = ($PSRemotingTestedComputers | Where-Object Enabled -EQ $true).ComputerName
+        $EnabledComputerNames = (
+            $PSRemotingTestedComputers | Where-Object { $_.Enabled }
+        ).ComputerName
 
         if ($EnabledComputerNames) {
             $Session = New-PSSession -ComputerName $EnabledComputerNames
@@ -219,10 +222,10 @@ Function Test-Port {
 	        Returns $True if the localhost is listening on 3389
 	            
 	    .EXAMPLE
-	        Test-Port -tcp 3389 -ComputerName MyServer1
-	        Returns $True if MyServer1 is listening on 3389
-	            
-	    .Notes #>
+	        Test-Port -tcp 3389 -ComputerName PC1
+
+	        Returns True if PC1 is listening on 3389
+    #>
 	    
     [CmdLetBinding()]
     Param(
@@ -281,15 +284,19 @@ Function Test-PsRemoting {
         PowerShell credential object used for authentication.
 
     .EXAMPLE
-        Test-PsRemoting -ComputerName <ComputerName>
+        Test-PsRemoting -ComputerName PC1
         Returns true when PS remoting is enabled or false when it's not
 
-        ComputerName: <ComputerName>
+        ComputerName: PC1
         Enabled:      True
 
     .EXAMPLE
-        Test-PsRemoting -ComputerName PC1 -Credential (Get-Credential -Message 
-        'Enter credentials' -UserName 'CONTOSO.NET\bob') -Authentication CredSSP
+        $params = @{
+            ComputerName   = 'PC1'
+            Credential     = Get-Credential
+            Authentication = 'CredSSP'
+        }
+        Test-PsRemoting @params
         
         Returns true when PS remoting is enabled on PC1 when using these 
         credentials with the authentication method supplied or false when it's 
