@@ -40,167 +40,161 @@
         }
     }
 }
-
-Function New-CimSessionHC {
+Function Set-ComputerConfigurationHC {
     <#
-    .SYNOPSIS
-        Creates CimSessions to remote computer(s), automatically determining if the WsMan
-        or DCOM protocol should be used.
+        .SYNOPSIS
+            Set the correct settings on a computer to be able run PowerShell 
+            scripts.
 
-    .DESCRIPTION
-        New-MrCimSession is a function that is designed to create CimSessions to one or more
-        computers, automatically determining if the default WsMan protocol or the backwards
-        compatible DCOM protocol should be used. PowerShell version 3 is required on the
-        computer that this function is being run on, but PowerShell does not need to be
-        installed at all on the remote computer.
+        .DESCRIPTION
+            Set the following computer settings:
+            - Enable PSRemoting
+            - Set MaxMemoryPerShell
 
-    .PARAMETER ComputerName
-        The name of the remote computer(s). This parameter accepts pipeline input. The local
-        computer is the default.
+        .EXAMPLE
+            Set-ComputerConfigurationHC PC1
 
-    .PARAMETER Credential
-        Specifies a user account that has permission to perform this action. The default is
-        the current user.
+            Set PC1 to allow PowerShell remoting and expand the memory.
+        #>
 
-    .EXAMPLE
-        New-MrCimSessionHC -ComputerName Server01, Server02
-
-    .EXAMPLE
-        New-MrCimSessionHC -ComputerName Server01, Server02 -Credential (Get-Credential)
-
-    .EXAMPLE
-        Get-Content -Path C:\Servers.txt | New-MrCimSessionHC
-
-    .INPUTS
-        String
-
-    .OUTPUTS
-        Microsoft.Management.Infrastructure.CimSession
-
-    .NOTES
-        Author:  Mike F Robbins
-        Website: http://mikefrobbins.com
-        Twitter: @mikefrobbins
-#>
-    [CmdletBinding()]
-    Param(
-        [Parameter(ValueFromPipeline)]
+    Param (
         [ValidateNotNullOrEmpty()]
-        [String[]]$ComputerName = $env:COMPUTERNAME,
-        [PSCredential]$Credential
-        #[System.Management.Automation.Credential()]$Credential = [System.Management.Automation.PSCredential]::Empty
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [String[]]$ComputerName,
+        [String]$PSExec = 'C:\Program Files\WindowsPowerShell\Modules\PSTools\PsExec.exe'
     )
- 
-    BEGIN {
-        $Opt = New-CimSessionOption -Protocol Dcom
- 
-        $SessionParams = @{
-            ErrorAction = 'Stop'
-        }
- 
-        If ($PSBoundParameters['Credential']) {
-            $SessionParams.Credential = $Credential
-        }
+
+    Begin {
+        Write-Verbose "Configure computers for PowerShell remoting"
     }
- 
-    PROCESS {
-        foreach ($Computer in $ComputerName) {
-            $SessionParams.ComputerName = $Computer
- 
-            if ((Test-WSMan -ComputerName $Computer -ErrorAction SilentlyContinue).productversion -match 'Stack: ([3-9]|[1-9][0-9]+)\.[0-9]+') {
-                try {
-                    Write-Verbose -Message "Attempting to connect to $Computer using the WSMAN protocol."
-                    New-CimSession @SessionParams
+
+    Process {
+        $PSRemotingTestedComputers = $ComputerName | Test-PsRemoting
+
+        $PSRemotingTestedComputers | Where-Object Enabled -EQ $false | ForEach-Object {
+            if (Test-Connection $_.ComputerName -Quiet) {
+                Write-Verbose "'$($_.ComputerName)' Enabvle PowerShell remoting"
+
+                Start-Process -FilePath $PSExec -ArgumentList  "\\$($_.ComputerName) -s powershell Enable-PSRemoting -Force"
+
+                $_.Enabled = $true
+            }
+            else {
+                Write-Warning "$($_.ComputerName) is offline"
+            }
+        }
+
+        $EnabledComputerNames = ($PSRemotingTestedComputers | Where-Object Enabled -EQ $true).ComputerName
+
+        if ($EnabledComputerNames) {
+            $Session = New-PSSession -ComputerName $EnabledComputerNames
+
+            Invoke-Command -Session $Session -ScriptBlock {
+                Try {
+                    $VerbosePreference = $Using:VerbosePreference
+
+
+                    $Result = [PSCustomObject]@{
+                        ComputerName              = $ENV:COMPUTERNAME
+                        PowerShellVersion         = $null
+                        ExecutionPolicy           = $null
+                        MaxMemoryPerShellMB       = $null
+                        MaxMemoryPerShellMBPlugin = $null
+                        OSname                    = $null
+                        Status                    = $null
+                        Action                    = @()
+                        Error                     = $null
+                    }
+
+                    #region Get OS Name
+                    $OS = Get-WmiObject -Class Win32_OperatingSystem
+                    $OSCap = $OS.Caption
+                    $OSArch = $OS.OSArchitecture
+                    $OSType = $OS.OtherTypeDescription
+                    $OSCDSV = $OS.CSDVersion
+
+                    if (-not $OSArch) {
+                        $Result.OSname = "$OSCap $OSType 32-bit $OSCDSV"
+                    }
+                    else {
+                        $Result.OSname = "$OSCap $OSType $OSArch $OSCDSV".Replace('  ', '')
+                    }
+                    #endregion
+
+                    #region Test PowerShell version
+                    # because version 2.0 fails for the rest of the ScriptBlock
+                    $Result.PowerShellVersion = $PSVersionTable.PSVersion
+
+                    if ($PSVersionTable.PSVersion.Major -lt 4) {
+                        $Result.Status = 'Error'
+                        $Result.Error = 'PowerShell version outdated'
+                        $Result
+                        Exit-PSSession
+                    }
+                    #endregion
+
+                    #region Test Execution policy
+                    if ((Get-ExecutionPolicy) -ne 'RemoteSigned') {
+                        Set-ExecutionPolicy RemoteSigned -Force
+
+                        $Result.Action += "Set execution policy to 'RemoteSigned'"
+                        $Result.Status = 'Updated'
+                    }
+
+                    $Result.ExecutionPolicy = Get-ExecutionPolicy
+                    #endregion
+
+                    #region Test MaxMemoryPerShellMB
+                    if (-not (Get-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB).Value -ge 2048) {
+                        $null = Set-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB 2048
+                        $RestartWinRm = $true
+
+                        $Result.Action += "Shell MaxMemoryPerShellMB set to 2048"
+                        $Result.Status = 'Updated'
+                    }
+
+                    $Result.MaxMemoryPerShellMB = (Get-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB).Value
+
+
+                    if (-not (Get-Item WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB).Value -ge 2048) {
+                        $null = Set-Item WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB 2048
+                        $RestartWinRm = $true
+
+                        $Result.Action += "Shell MaxMemoryPerShellMB Plugin set to 2048"
+                        $Result.Status = 'Updated'
+                    }
+
+                    $Result.MaxMemoryPerShellMBPlugin = (Get-Item WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB).Value
+
+                    if ($RestartWinRm) {
+                        $null = Restart-Service winrm
+                        $Result.Action += "Restarted WinRM service"
+                    }
+                    #endregion
+
+                    if (-not $Result.Status) {
+                        $Result.Status = 'Ok'
+                        Write-Verbose "'$ENV:COMPUTERNAME': Correctly configured"
+                    }
+                    else {
+                        Write-Verbose "'$ENV:COMPUTERNAME': Updated configuration"
+                    }
                 }
-                catch {
-                    throw "Unable to connect to $Computer using the WSMAN protocol. Verify your credentials and try again."
+                Catch {
+                    $Result.Status = 'Error'
+                    $Result.Error = $_
+
+                    Write-Warning "'$ENV:COMPUTERNAME': $_"
+                }
+                Finally {
+                    $Result
                 }
             }
- 
-            else {
-                $SessionParams.SessionOption = $Opt
- 
-                try {
-                    Write-Verbose -Message "Attempting to connect to $Computer using the DCOM protocol."
-                    New-CimSession @SessionParams
-                }
-                catch {
-                    throw "Host '$Computer' is offline or hostname is incorrect."
-                }
- 
-                $SessionParams.Remove('SessionOption')
-            }            
         }
     }
-}
-Function Reset-SessionsHC {
-    <# 
-    .SYNOPSIS   
-        Kill all open session.
 
-    .DESCRIPTION
-        When the maximum number of open sessions (5) has been reached, we can kill them but be 
-        cautious as all open sessions will be killed.
-    #>
-
-    [CmdletBinding()]
-    Param (
-        [parameter(Mandatory = $true, Position = 0)]
-        [ValidateNotNullOrEmpty()]
-        [String] $ComputerName
-    )
-
-    Process {
-        (Get-WmiObject -Class win32_process -ComputerName $ComputerName | 
-        Where-Object { $_.ProcessName -eq 'wsmprovhost.exe' } | 
-        Select-Object -First 1).terminate()
-    }
-}
-Function Set-RemoteSignedHC {
-    <# 
-    .SYNOPSIS   
-        Set execution policy to 'RemoteSinged' on a remote server.
-
-    .DESCRIPTION
-        Set execution policy to 'RemoteSinged' on a remote server.
-    #>
-
-    [CmdletBinding()]
-    Param (
-        [parameter(Mandatory = $true, Position = 0)]
-        [ValidateNotNullOrEmpty()]
-        [String] $ComputerName
-    )
-
-    Process {
-        Invoke-Command -ComputerName $ComputerName -ScriptBlock {
-            powershell -command "& {Set-ExecutionPolicy RemoteSigned}"
-        }
-    }
-}
-Function Test-ConnectivityHC {
-    Param (
-        [Parameter(Mandatory)]
-        [String]$ComputerName,
-        [Parameter(Mandatory)]
-        $Credential
-    )
-    if (-not(Test-Connection -ComputerName $ComputerName -Quiet)) {
-        $Global:Error.Remove($Global:Error[0])
-        throw "Host '$($ComputerName)' is offline or hostname is incorrect."
-    }
-    if ((Test-PsRemoting -ComputerName $ComputerName -Credential $Credential) -eq $false) {
-        if (
-            [Version](Get-WmiObject -Computer $ComputerName -Class Win32_OperatingSystem).Version -lt 
-            [version]'6.0.0'
-        ) {
-            $Global:Error.Remove($Global:Error[0])
-            throw "OS not supported on '$($ComputerName)', we need at least Windows 7 or Windows Server 2008."
-        }
-        else {
-            $Global:Error.Remove($Global:Error[0])
-            throw "Remoting failed on '$($ComputerName)', please enable PowerShell remoting and 'CredSSP' authentication."
-        }
+    End {
+        Get-PSSession | Remove-PSSession
     }
 }
 Function Test-Port {	        
@@ -415,7 +409,6 @@ Function Wait-MaxRunningJobsHC {
         }
     }
 }
-
 Workflow Get-PowerShellRemotingAndVersionHC {
     <# 
     .SYNOPSIS   
