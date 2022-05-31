@@ -116,87 +116,7 @@ Function Get-PortNumbersHC {
         }
     }
 }
-Function Import-CredentialsHC {
-    <# 
-    .SYNOPSIS   
-        Create a PSCredential object.
 
-    .DESCRIPTION
-        Create a PSCredential object with a user name and password that can be 
-        used for authentication via 'CredSsp'.
-
-    .PARAMETER SamAccountName 
-        The SAM Account Name used to logon to the domain.
-
-    .PARAMETER Password
-        Plain text or a hashed file. Keep in mind that the hashed file can only 
-        be decrypted by the user that hashed it. A part of the Windows profile 
-        is used to decipher the hash.
-        
-    .EXAMPLE
-        $Cred = Import-CredentialsHC -SamAccountName 'bob' -Password '123'
-        
-        Creates the PSCredential object '$Cred' for the user 'bob' with his 
-        password '123'.
-
-    .EXAMPLE
-        $Credentials = Import-CredentialsHC 'bob' 'T:\Input\bob.txt'
-        
-        Creates the PSCredential object '$Credentials' for the user 'bob' with 
-        his password in the hashed file.
-    #>
-
-    [CmdletBinding()]
-    Param (
-        [parameter(Mandatory, Position = 0)]
-        [ValidateNotNullOrEmpty()]
-        [String]$SamAccountName,
-        [parameter(Mandatory, Position = 1)]
-        [ValidateNotNullOrEmpty()] 
-        [String]$Password
-    )
-
-    Process {
-        If (-not (Get-ADUser -Filter { SamAccountName -eq $SamAccountName })) {
-            throw "Import-CredentialsHC: The SamAccountName '$SamAccountName' is incorrect"
-        }
-
-        if (-not ((Get-ADUser -Identity $SamAccountName).Enabled)) {
-            throw "Import-CredentialsHC: The account '$SamAccountName' is disabled"
-        }
-
-        if ((Get-ADUser -Identity $SamAccountName -Properties LockedOut).LockedOut) {
-            throw "Import-CredentialsHC: The account '$SamAccountName' is locked-out"
-        }
-
-        if (Test-Path $Password -PathType Leaf) {
-            try {
-                $Pwd = Get-Content $Password | ConvertTo-SecureString -Force -EA Stop
-                $Credentials = New-Object System.Management.Automation.PSCredential -ArgumentList $SamAccountName, $Pwd
-            }            
-            catch {
-                throw "Import-CredentialsHC: The password has been hashed with another Windows profile (user) then the Windows account now in use 
-                (all 3 users/owners need to be the same)
-                - Script account :`t $env:USERNAME
-                - SamAccountName :`t $SamAccountName
-                - Password file  :`t $Password"
-            }
-        }
-        else {
-            $Pwd = $Password | ConvertTo-SecureString -AsPlainText -Force
-            $Credentials = New-Object System.Management.Automation.PSCredential -ArgumentList $SamAccountName, $Pwd 
-        }
-
-        if (
-            (New-Object directoryservices.directoryentry "", $SamAccountName, $($Credentials.GetNetworkCredential().Password)).psbase.name -ne $null
-        ) {
-            Write-Output $Credentials
-        } 
-        else {
-            throw "Import-CredentialsHC: The password for the user '$SamAccountName' is not valid"
-        }
-    }
-}
 Function New-CimSessionHC {
     <#
     .SYNOPSIS
@@ -287,37 +207,6 @@ Function New-CimSessionHC {
                 $SessionParams.Remove('SessionOption')
             }            
         }
-    }
-}
-Function Open-ConnectionHC {
-    <# 
-    .SYNOPSIS   
-        Starts a session to a remote computer.
-
-    .DESCRIPTION
-        Starts a session to a remote computer by using the given credentials.
-
-    .EXAMPLE
-        Open-ConnectionHC -ComputerName SERVER1 -User 'Bob' -Password 'P@ssw0rd'
-        Exit-PSSession
-        Opens a remote session to SERVER1 and closes it again.
-    #>
-
-    [CmdletBinding(SupportsShouldProcess = $True)]
-    Param(
-        [Parameter(Mandatory = $true, Position = 0)]
-        [ValidateNotNullOrEmpty()]
-        [String]$ComputerName,
-        [Parameter(Mandatory = $true, Position = 1)]
-        [ValidateNotNullOrEmpty()]
-        [String]$User,
-        [Parameter(Mandatory = $true, Position = 2)]
-        [ValidateNotNullOrEmpty()]
-        [String]$Password
-    )
-    Process {
-        $Cred = Import-CredentialsHC -SamAccountName $User -Password $Password -ErrorAction Stop
-        Enter-PSSession $ComputerName -Authentication 'CredSsp' -Credential $Cred -ErrorAction Stop   
     }
 }
 Function Reset-SessionsHC {
@@ -616,8 +505,11 @@ Workflow Get-PowerShellRemotingAndVersionHC {
         If not provided we check all servers.
 
     .EXAMPLE
-        $Cred = Import-CredentialsHC 'bob' 'T:\bob.txt'
-        $Result = Get-PowerShellRemotingAndVersionHC -Credentials $Cred -ComputerName PC1
+        $params = @{
+            Credentials  = Get-Credential
+            ComputerName = PC1
+        }
+        $Result = Get-PowerShellRemotingAndVersionHC @params
 
         Check the PowerShell capabilities of PC1
     #>
