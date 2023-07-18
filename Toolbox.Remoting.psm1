@@ -208,7 +208,7 @@ Function Test-PortHC {
 	    .DESCRIPTION
 	        Test a host to see if the specified port is open.
 	                        
-	    .PARAMETER TCPPort 
+	    .PARAMETER Port 
 	        Port to test
 	            
 	    .PARAMETER Timeout 
@@ -230,7 +230,8 @@ Function Test-PortHC {
     [CmdLetBinding()]
     Param(
         [Parameter()]
-        [int]$TCPport = 135,
+        [Alias('TCPport')]
+        [int]$Port = 135,
         [Parameter()]
         [int]$TimeOut = 3000,
         [Parameter(ValueFromPipelineByPropertyName, ValueFromPipeline)]
@@ -241,7 +242,7 @@ Function Test-PortHC {
         $tcpClient = New-Object system.Net.Sockets.TcpClient
 	        
         try {
-            $iar = $tcpClient.BeginConnect($ComputerName, $TCPport, $null, $null)
+            $iar = $tcpClient.BeginConnect($ComputerName, $Port, $null, $null)
             $wait = $iar.AsyncWaitHandle.WaitOne($TimeOut, $false)
         }
         catch [System.Net.Sockets.SocketException] {
