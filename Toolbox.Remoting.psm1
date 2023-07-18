@@ -69,7 +69,7 @@ Function Set-ComputerConfigurationHC {
     }
 
     Process {
-        $PSRemotingTestedComputers = $ComputerName | Test-PsRemoting
+        $PSRemotingTestedComputers = $ComputerName | Test-PsRemotingHC
 
         $PSRemotingTestedComputers | Where-Object { -not $_.Enabled } | 
         ForEach-Object {
@@ -200,7 +200,7 @@ Function Set-ComputerConfigurationHC {
         Get-PSSession | Remove-PSSession
     }
 }
-Function Test-Port {	        
+Function Test-PortHC {	        
     <#
 	    .SYNOPSIS 
 	        Test a host to see if the specified port is open.
@@ -218,11 +218,11 @@ Function Test-Port {
 	        Computer to test the port against.
 	            
 	    .EXAMPLE
-	        Test-Port -tcp 3389
+	        Test-PortHC -tcp 3389
 	        Returns $True if the localhost is listening on 3389
 	            
 	    .EXAMPLE
-	        Test-Port -tcp 3389 -ComputerName PC1
+	        Test-PortHC -tcp 3389 -ComputerName PC1
 
 	        Returns True if PC1 is listening on 3389
     #>
@@ -245,17 +245,17 @@ Function Test-Port {
             $wait = $iar.AsyncWaitHandle.WaitOne($TimeOut, $false)
         }
         catch [System.Net.Sockets.SocketException] {
-            Write-Verbose " [Test-Port] :: Exception: $($_.exception.message)"
+            Write-Verbose " [Test-PortHC] :: Exception: $($_.exception.message)"
             return $false
         }
         catch {
-            Write-Verbose " [Test-Port] :: General Exception"
+            Write-Verbose " [Test-PortHC] :: General Exception"
             return $false
         }
 	    
         if (!$wait) {
             $tcpClient.Close()
-            Write-Verbose " [Test-Port] :: Connection Timeout"
+            Write-Verbose " [Test-PortHC] :: Connection Timeout"
             return $false
         }
         else {
@@ -265,7 +265,7 @@ Function Test-Port {
         }
     }
 }
-Function Test-PsRemoting {
+Function Test-PsRemotingHC {
     <# 
     .SYNOPSIS   
         Check if remoting is enabled on a remote computer.
@@ -284,7 +284,7 @@ Function Test-PsRemoting {
         PowerShell credential object used for authentication.
 
     .EXAMPLE
-        Test-PsRemoting -ComputerName PC1
+        Test-PsRemotingHC -ComputerName PC1
         Returns true when PS remoting is enabled or false when it's not
 
         ComputerName: PC1
@@ -296,7 +296,7 @@ Function Test-PsRemoting {
             Credential     = Get-Credential
             Authentication = 'CredSSP'
         }
-        Test-PsRemoting @params
+        Test-PsRemotingHC @params
         
         Returns true when PS remoting is enabled on PC1 when using these 
         credentials with the authentication method supplied or false when it's 
@@ -395,7 +395,7 @@ Function Wait-MaxRunningJobsHC {
         [System.Management.Automation.Job[]]$Name,
         [Parameter(Mandatory)]
         [Int]$MaxThreads,
-        [Int]$FreeMemory = 1GB
+        [Int]$FreeMemory = 500MB
     )
 
     Begin {
