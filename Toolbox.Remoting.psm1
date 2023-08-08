@@ -69,7 +69,7 @@ Function Set-ComputerConfigurationHC {
     }
 
     Process {
-        $PSRemotingTestedComputers = $ComputerName | Test-PsRemoting
+        $PSRemotingTestedComputers = $ComputerName | Test-PsRemotingHC
 
         $PSRemotingTestedComputers | Where-Object { -not $_.Enabled } | 
         ForEach-Object {
@@ -208,7 +208,7 @@ Function Test-PortHC {
 	    .DESCRIPTION
 	        Test a host to see if the specified port is open.
 	                        
-	    .PARAMETER TCPPort 
+	    .PARAMETER Port 
 	        Port to test
 	            
 	    .PARAMETER Timeout 
@@ -230,7 +230,8 @@ Function Test-PortHC {
     [CmdLetBinding()]
     Param(
         [Parameter()]
-        [int]$TCPport = 135,
+        [Alias('TCPport')]
+        [int]$Port = 135,
         [Parameter()]
         [int]$TimeOut = 3000,
         [Parameter(ValueFromPipelineByPropertyName, ValueFromPipeline)]
@@ -241,7 +242,7 @@ Function Test-PortHC {
         $tcpClient = New-Object system.Net.Sockets.TcpClient
 	        
         try {
-            $iar = $tcpClient.BeginConnect($ComputerName, $TCPport, $null, $null)
+            $iar = $tcpClient.BeginConnect($ComputerName, $Port, $null, $null)
             $wait = $iar.AsyncWaitHandle.WaitOne($TimeOut, $false)
         }
         catch [System.Net.Sockets.SocketException] {
@@ -265,7 +266,7 @@ Function Test-PortHC {
         }
     }
 }
-Function Test-PsRemoting {
+Function Test-PsRemotingHC {
     <# 
     .SYNOPSIS   
         Check if remoting is enabled on a remote computer.
@@ -284,7 +285,7 @@ Function Test-PsRemoting {
         PowerShell credential object used for authentication.
 
     .EXAMPLE
-        Test-PsRemoting -ComputerName PC1
+        Test-PsRemotingHC -ComputerName PC1
         Returns true when PS remoting is enabled or false when it's not
 
         ComputerName: PC1
@@ -296,7 +297,7 @@ Function Test-PsRemoting {
             Credential     = Get-Credential
             Authentication = 'CredSSP'
         }
-        Test-PsRemoting @params
+        Test-PsRemotingHC @params
         
         Returns true when PS remoting is enabled on PC1 when using these 
         credentials with the authentication method supplied or false when it's 
@@ -395,7 +396,7 @@ Function Wait-MaxRunningJobsHC {
         [System.Management.Automation.Job[]]$Name,
         [Parameter(Mandatory)]
         [Int]$MaxThreads,
-        [Int]$FreeMemory = 1GB
+        [Int]$FreeMemory = 500MB
     )
 
     Begin {
