@@ -40,10 +40,95 @@
         }
     }
 }
+Function New-PSSessionHC {
+    <#
+        .SYNOPSIS
+            Use the latest version of PowerShell on the remote machine.
+
+        .DESCRIPTION
+            Return a PowerShell session object that can be used with
+            remoting CmdLets like Invoke-Command to establish a remote
+            connection with the latest version of PowerShell.
+
+        .PARAMETER LogFolder
+            Save a list of clients that do not support the PowerShell version
+            defined in PowerShellEndpointVersion.
+
+        .EXAMPLE
+            Get-PSSessionConfiguration
+
+            $computerName = $env:COMPUTERNAME
+
+            try {
+                $invokeParams = @{
+                    Session      = New-PSSessionHC -ComputerName $computerName
+                    ScriptBlock  = {
+                        ($PSVersionTable).PSVersion.ToString()
+                    }
+                    ArgumentList = $Path
+                    asJob        = $true
+                }
+
+                $job = Invoke-Command @invokeParams
+
+                $job | Wait-Job | Receive-Job
+            }
+            catch {
+                throw "Failed running Invoke-Command: $_"
+            }
+
+
+             Find out which PowerShell versions are enabled on the local
+             machine for accepting remote connections.
+
+             Then try to create a PowerShell session tin the latest PowerShell
+             version installed.
+    #>
+
+    [OutputType([System.Management.Automation.RunSpaces.PSSession])]
+    Param (
+        [Parameter(Mandatory)]
+        [String]$ComputerName,
+        [String]$PowerShellEndpointVersion = 'PowerShell.7',
+        [String]$LogFolder = 'T:\Test\Brecht\PowerShell'
+    )
+
+    try {
+        $params = @{
+            ComputerName      = $computerName
+            ConfigurationName = $PowerShellEndpointVersion
+            ErrorAction       = 'Stop'
+        }
+        New-PSSession @params
+    }
+    catch {
+        $Error.RemoveAt(0)
+
+        Write-Verbose "PowerShellEndpointVersion '$PowerShellEndpointVersion' not supported on '$ComputerName'"
+
+        $params.Remove('ConfigurationName')
+        New-PSSession @params
+
+        #region Create log file for incompatible clients
+        if (Test-Path -LiteralPath $LogFolder -PathType Container) {
+            $params = @{
+                Path      = $LogFolder
+                ChildPath = $PowerShellEndpointVersion + ' not compatible clients ' + (Get-Date).ToString('yyyyMMdd') + '.csv'
+            }
+            $logFile = Join-Path @params
+
+            @{
+                Date         = Get-Date
+                ComputerName = $ComputerName
+            } | Export-Csv -Append -Path $logFile
+        }
+        #endregion
+    }
+}
 Function Set-ComputerConfigurationHC {
     <#
         .SYNOPSIS
-            Set the correct settings on a computer to be able run PowerShell 
+            Set the correct settings on a computer to be able run PowerShell
             scripts.
 
         .DESCRIPTION
@@ -71,7 +156,7 @@ Function Set-ComputerConfigurationHC {
     Process {
         $PSRemotingTestedComputers = $ComputerName | Test-PsRemotingHC
 
-        $PSRemotingTestedComputers | Where-Object { -not $_.Enabled } | 
+        $PSRemotingTestedComputers | Where-Object { -not $_.Enabled } |
         ForEach-Object {
             if (Test-Connection $_.ComputerName -Quiet) {
                 Write-Verbose "'$($_.ComputerName)' Enable PowerShell remoting"
@@ -200,33 +285,33 @@ Function Set-ComputerConfigurationHC {
         Get-PSSession | Remove-PSSession
     }
 }
-Function Test-PortHC {	        
+Function Test-PortHC {
     <#
-	    .SYNOPSIS 
+	    .SYNOPSIS
 	        Test a host to see if the specified port is open.
-	            
+
 	    .DESCRIPTION
 	        Test a host to see if the specified port is open.
-	                        
-	    .PARAMETER Port 
+
+	    .PARAMETER Port
 	        Port to test
-	            
-	    .PARAMETER Timeout 
+
+	    .PARAMETER Timeout
 	        How long to wait (in milliseconds) for the TCP connection.
-	            
-	    .PARAMETER ComputerName 
+
+	    .PARAMETER ComputerName
 	        Computer to test the port against.
-	            
+
 	    .EXAMPLE
 	        Test-PortHC -tcp 3389
 	        Returns $True if the localhost is listening on 3389
-	            
+
 	    .EXAMPLE
 	        Test-PortHC -tcp 3389 -ComputerName PC1
 
 	        Returns True if PC1 is listening on 3389
     #>
-	    
+
     [CmdLetBinding()]
     Param(
         [Parameter()]
@@ -237,10 +322,10 @@ Function Test-PortHC {
         [Parameter(ValueFromPipelineByPropertyName, ValueFromPipeline)]
         [String]$ComputerName = $env:COMPUTERNAME
     )
-	    
+
     Process {
         $tcpClient = New-Object system.Net.Sockets.TcpClient
-	        
+
         try {
             $iar = $tcpClient.BeginConnect($ComputerName, $Port, $null, $null)
             $wait = $iar.AsyncWaitHandle.WaitOne($TimeOut, $false)
@@ -253,7 +338,7 @@ Function Test-PortHC {
             Write-Verbose " [Test-PortHC] :: General Exception"
             return $false
         }
-	    
+
         if (!$wait) {
             $tcpClient.Close()
             Write-Verbose " [Test-PortHC] :: Connection Timeout"
@@ -267,15 +352,15 @@ Function Test-PortHC {
     }
 }
 Function Test-PsRemotingHC {
-    <# 
-    .SYNOPSIS   
+    <#
+    .SYNOPSIS
         Check if remoting is enabled on a remote computer.
 
     .DESCRIPTION
-        Check if PowerShell remoting is enabled on a remote computer and 
+        Check if PowerShell remoting is enabled on a remote computer and
         return an object with the result.
 
-    .PARAMETER ComputerName 
+    .PARAMETER ComputerName
         Hostname to check.
 
     .PARAMETER Authentication
@@ -298,21 +383,21 @@ Function Test-PsRemotingHC {
             Authentication = 'CredSSP'
         }
         Test-PsRemotingHC @params
-        
-        Returns true when PS remoting is enabled on PC1 when using these 
-        credentials with the authentication method supplied or false when it's 
+
+        Returns true when PS remoting is enabled on PC1 when using these
+        credentials with the authentication method supplied or false when it's
         not
     #>
 
     [OutputType([PSCustomObject[]])]
-    Param ( 
-        [Parameter(Mandatory, ValueFromPipeline)] 
+    Param (
+        [Parameter(Mandatory, ValueFromPipeline)]
         [String[]]$ComputerName,
         [PSCredential]$Credential,
         [ValidateSet('CredSSP', 'Basic', 'Default', 'Kerberos')]
         [String]$Authentication
-    ) 
-    
+    )
+
     Process {
         foreach ($C in $ComputerName) {
             Try {
@@ -345,20 +430,20 @@ Function Test-PsRemotingHC {
             Catch {
                 $Result.Enabled = $false
             }
-    
+
             $Result
         }
-        
+
     }
 }
 Function Wait-MaxRunningJobsHC {
-    <# 
-    .SYNOPSIS   
+    <#
+    .SYNOPSIS
         Limit how many jobs can run at the same time
 
     .DESCRIPTION
         Only allow a specific quantity of jobs to run at the same time.
-        Also wait for launching new jobs when there is not enough free 
+        Also wait for launching new jobs when there is not enough free
         memory.
 
     .PARAMETER Name
@@ -389,7 +474,7 @@ Function Wait-MaxRunningJobsHC {
         Only allow 3 jobs to run at the same time. Wait to launch the next
         job until one is finished.
     #>
-    
+
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory)]
@@ -411,7 +496,7 @@ Function Wait-MaxRunningJobsHC {
     Process {
         while (
             ((Get-FreeMemoryHC) -lt $FreeMemory) -or
-            ((Get-RunningJobsHC).Count -ge $MaxThreads) 
+            ((Get-RunningJobsHC).Count -ge $MaxThreads)
         ) {
             $null = Wait-Job -Job $Name -Any
         }
