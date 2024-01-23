@@ -102,7 +102,7 @@ Function New-PSSessionHC {
         New-PSSession @params
     }
     catch {
-        $Error.RemoveAt(0)
+        $global:Error.RemoveAt(0)
 
         Write-Verbose "PowerShellEndpointVersion '$PowerShellEndpointVersion' not supported on '$ComputerName'"
 
