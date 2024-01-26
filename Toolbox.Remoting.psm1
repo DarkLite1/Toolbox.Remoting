@@ -446,7 +446,7 @@ Function Wait-MaxRunningJobsHC {
         Also wait for launching new jobs when there is not enough free
         memory.
 
-    .PARAMETER Name
+    .PARAMETER Job
         Name of the variable holding the jobs returned by 'Start-Job' or
         'Invoke-Command -AsJob'.
 
@@ -468,7 +468,7 @@ Function Wait-MaxRunningJobsHC {
         foreach ($i in 1..20) {
             Write-Verbose "Start job $i"
             $jobs += Start-Job -ScriptBlock $ScriptBlock
-            Wait-MaxRunningJobsHC -Name $jobs -MaxThreads 3
+            Wait-MaxRunningJobsHC -Job $jobs -MaxThreads 3
         }
 
         Only allow 3 jobs to run at the same time. Wait to launch the next
@@ -478,7 +478,8 @@ Function Wait-MaxRunningJobsHC {
     [CmdletBinding()]
     Param (
         [Parameter(Mandatory)]
-        [System.Management.Automation.Job[]]$Name,
+        [Alias('Name')]
+        [System.Management.Automation.Job[]]$Job,
         [Parameter(Mandatory)]
         [Int]$MaxThreads,
         [Int]$FreeMemory = 500MB
