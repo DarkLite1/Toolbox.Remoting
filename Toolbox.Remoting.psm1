@@ -90,16 +90,45 @@ Function New-PSSessionHC {
         [Parameter(Mandatory)]
         [String]$ComputerName,
         [String]$PowerShellEndpointVersion = 'PowerShell.7',
+        [String]$ScriptName,
         [String]$LogFolder = 'T:\Test\Brecht\PowerShell'
     )
 
+    Function Write-ToLogFileHC {
+        Param (
+            [Parameter(Mandatory)]
+            $Session
+        )
+
+        if (Test-Path -LiteralPath $LogFolder -PathType Container) {
+            $joinParams = @{
+                Path      = $LogFolder
+                ChildPath = (Get-Date).ToString('yyyyMMdd') + ' - connection log.csv'
+            }
+            $logFile = Join-Path @joinParams
+
+            [PSCustomObject]@{
+                Date              = Get-Date
+                ScriptName        = $ScriptName
+                ComputerName      = $ComputerName
+                PowerShellVersion = Invoke-Command -Session $session -ScriptBlock {
+                    ($PSVersionTable).PSVersion.ToString()
+                }
+            } | Export-Csv -Append -Path $logFile
+        }
+    }
+
     try {
         $params = @{
-            ComputerName      = $computerName
+            ComputerName      = $ComputerName
             ConfigurationName = $PowerShellEndpointVersion
             ErrorAction       = 'Stop'
         }
-        New-PSSession @params
+        $session = New-PSSession @params
+
+        Write-ToLogFileHC -Session $session
+
+        $session
     }
     catch {
         $global:Error.RemoveAt(0)
@@ -107,22 +136,12 @@ Function New-PSSessionHC {
         Write-Verbose "PowerShellEndpointVersion '$PowerShellEndpointVersion' not supported on '$ComputerName'"
 
         $params.Remove('ConfigurationName')
-        New-PSSession @params
 
-        #region Create log file for incompatible clients
-        if (Test-Path -LiteralPath $LogFolder -PathType Container) {
-            $params = @{
-                Path      = $LogFolder
-                ChildPath = $PowerShellEndpointVersion + ' not compatible clients ' + (Get-Date).ToString('yyyyMMdd') + '.csv'
-            }
-            $logFile = Join-Path @params
+        $session = New-PSSession @params
 
-            @{
-                Date         = Get-Date
-                ComputerName = $ComputerName
-            } | Export-Csv -Append -Path $logFile
-        }
-        #endregion
+        Write-ToLogFileHC -Session $session
+
+        $session
     }
 }
 Function Set-ComputerConfigurationHC {
