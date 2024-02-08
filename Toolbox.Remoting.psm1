@@ -47,6 +47,9 @@ Function Get-PowerShellEndpointsHC {
 
         .DESCRIPTION
             Get a list of enabled PowerShell endpoints on a remote computer.
+            The list is ordered so the latest version will be the first item
+            in the returned collection
+
             The returned strings represent a PowerShell remoting configuration
             name that can be used with other CmdLets like `Invoke-Command` with
             the parameter 'ConfigurationName'.
@@ -60,6 +63,8 @@ Function Get-PowerShellEndpointsHC {
                 ErrorAction       = 'Stop'
             }
             Invoke-Command @params
+
+            Connect to the latest available PowerShell endpoint on 'PC1'
     #>
 
     [OutputType([String[]])]
