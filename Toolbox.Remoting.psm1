@@ -1,4 +1,13 @@
-﻿Function Get-PortNumbersHC {
+﻿Param (
+    [String[]]$PowerShellEndpointNames = @(
+        'PowerShell.7.4.1',
+        'PowerShell.7',
+        'microsoft.powershell'
+    ),
+    [String]$PowerShellConnectionsLogFolder = 'T:\Test\Brecht\PowerShell'
+)
+
+Function Get-PortNumbersHC {
     <#
     .SYNOPSIS
         Get the open ports for a specific process.
@@ -38,6 +47,76 @@
                 throw "Failed to get the open ports for process '$ProcessName': $_"
             }
         }
+    }
+}
+Function Get-PowerShellConnectableEndpointNameHC {
+    <#
+        .SYNOPSIS
+            Get the name of the latest enabled PowerShell endpoint where
+            a remote connection is allowed.
+    #>
+
+    [CmdletBinding()]
+    [OutputType([String])]
+    Param (
+        [Parameter(Mandatory)]
+        [String]$ComputerName,
+        [String]$ScriptName,
+        [String[]]$PowerShellEndpointNames = $PowerShellEndpointNames
+    )
+
+    if (-not $PowerShellEndpointNames) {
+        throw 'Get-PowerShellConnectableEndpointNameHC: No PowerShellEndpointNames found'
+    }
+
+    $firstError = $null
+    $connected = $false
+    $counter = @{
+        currentEndpoint = 0
+        totalEndpoints  = $PowerShellEndpointNames.Count
+    }
+
+    while (
+        (-not $connected) -and
+        ($counter.currentEndpoint -lt $counter.totalEndpoints)
+    ) {
+        try {
+            $endpointName = $PowerShellEndpointNames[$counter.currentEndpoint]
+
+            $params = @{
+                ComputerName      = $ComputerName
+                ConfigurationName = $endpointName
+                ScriptBlock       = { 1 }
+                ErrorAction       = 'Stop'
+            }
+            $null = Invoke-Command @params
+
+            $connected = $true
+
+            $endpointName
+        }
+        catch {
+            if (-not $firstError) {
+                $firstError = $_
+            }
+            $global:Error.RemoveAt(0)
+            Write-Warning "Failed connecting to PowerShell endpoint '$endpointName' on '$ComputerName'"
+        }
+        finally {
+            $counter.currentEndpoint++
+        }
+    }
+
+    if ($connected) {
+        $writeLogParams = @{
+            PowerShellVersion = $endpointName
+            ScriptName        = $ScriptName
+            ComputerName      = $ComputerName
+        }
+        Write-ToLogFileHC @writeLogParams
+    }
+    else {
+        Write-Error $firstError
     }
 }
 Function Get-PowerShellEndpointsHC {
@@ -572,6 +651,31 @@ Function Wait-MaxRunningJobsHC {
         ) {
             $null = Wait-Job -Job $Name -Any
         }
+    }
+}
+Function Write-ToLogFileHC {
+    Param (
+        [Parameter(Mandatory)]
+        [String]$PowerShellVersion,
+        [Parameter(Mandatory)]
+        [String]$ComputerName,
+        [String]$ScriptName,
+        [String]$LogFolder = $PowerShellConnectionsLogFolder
+    )
+
+    if (Test-Path -LiteralPath $LogFolder -PathType Container) {
+        $joinParams = @{
+            Path      = $LogFolder
+            ChildPath = (Get-Date).ToString('yyyyMMdd') + ' - connection log.csv'
+        }
+        $logFile = Join-Path @joinParams
+
+        [PSCustomObject]@{
+            Date              = Get-Date
+            ScriptName        = $ScriptName
+            ComputerName      = $ComputerName
+            PowerShellVersion = $PowerShellVersion
+        } | Export-Csv -Append -Path $logFile
     }
 }
 
