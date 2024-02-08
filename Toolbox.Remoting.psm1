@@ -40,6 +40,53 @@
         }
     }
 }
+Function Get-PowerShellEndpointsHC {
+    <#
+        .SYNOPSIS
+            List the PowerShell remoting endpoints.
+
+        .DESCRIPTION
+            Get a list of enabled PowerShell endpoints on a remote computer.
+            The returned strings represent a PowerShell remoting configuration
+            name that can be used with other CmdLets like `Invoke-Command` with
+            the parameter 'ConfigurationName'.
+
+        .EXAMPLE
+            $endpoints = Get-PowerShellEndpointsHC -ComputerName 'PC1'
+            $params = @{
+                ComputerName      = 'PC1'
+                ConfigurationName = $endpoints[0]
+                ScriptBlock       = { ($PSVersionTable).PSVersion.ToString() }
+                ErrorAction       = 'Stop'
+            }
+            Invoke-Command @params
+    #>
+
+    [OutputType([String[]])]
+    Param (
+        [Parameter(Mandatory)]
+        [String]$ComputerName
+    )
+
+    $params = @{
+        ComputerName = $ComputerName
+        ScriptBlock  = {
+            Get-PSSessionConfiguration | Where-Object {
+                ($_.Enabled) -and
+                ($_.Name -ne 'microsoft.windows.servermanagerworkflows') -and
+                ($_.Name -ne 'microsoft.powershell.workflow') -and
+                ($_.Name -ne 'microsoft.powershell32')
+
+            } |
+            Sort-Object -Property 'Name' -Descending |
+            Select-Object -ExpandProperty 'Name'
+        }
+        ErrorAction  = 'Stop'
+    }
+    [array]$endpoints = Invoke-Command @params
+
+    $endpoints
+}
 Function New-PSSessionHC {
     <#
         .SYNOPSIS
