@@ -4,7 +4,7 @@
         'PowerShell.7',
         'microsoft.powershell'
     ),
-    [String]$PowerShellConnectionsLogFolder = 'T:\Test\Brecht\PowerShell'
+    [String]$PowerShellConnectionsLogFolder = 'T:\Test\Brecht\PowerShell\Connection logs'
 )
 
 Function Get-PortNumbersHC {
