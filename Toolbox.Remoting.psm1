@@ -1,10 +1,10 @@
 ﻿Param (
-    [String[]]$PowerShellEndpointNames = @(
+    [String[]]$PSConfigurationNames = @(
         'PowerShell.7.4.1',
         'PowerShell.7',
         'microsoft.powershell'
     ),
-    [String]$PowerShellConnectionsLogFolder = 'T:\Test\Brecht\PowerShell\Connection logs'
+    [String]$PSConnectionsLogFolder = 'T:\Test\Brecht\PowerShell\Connection logs'
 )
 
 Function Get-PortNumbersHC {
@@ -62,18 +62,18 @@ Function Get-PowerShellConnectableEndpointNameHC {
         [Parameter(Mandatory)]
         [String]$ComputerName,
         [String]$ScriptName,
-        [String[]]$PowerShellEndpointNames = $PowerShellEndpointNames
+        [String[]]$PSConfigurationNames = $PSConfigurationNames
     )
 
-    if (-not $PowerShellEndpointNames) {
-        throw 'Get-PowerShellConnectableEndpointNameHC: No PowerShellEndpointNames found'
+    if (-not $PSConfigurationNames) {
+        throw 'Get-PowerShellConnectableEndpointNameHC: No PSConfigurationNames found'
     }
 
     $firstError = $null
     $connected = $false
     $counter = @{
         currentEndpoint = 0
-        totalEndpoints  = $PowerShellEndpointNames.Count
+        totalEndpoints  = $PSConfigurationNames.Count
     }
 
     while (
@@ -81,7 +81,7 @@ Function Get-PowerShellConnectableEndpointNameHC {
         ($counter.currentEndpoint -lt $counter.totalEndpoints)
     ) {
         try {
-            $endpointName = $PowerShellEndpointNames[$counter.currentEndpoint]
+            $endpointName = $PSConfigurationNames[$counter.currentEndpoint]
 
             $params = @{
                 ComputerName      = $ComputerName
@@ -556,7 +556,7 @@ Function Write-ToLogFileHC {
         [Parameter(Mandatory)]
         [String]$ComputerName,
         [String]$ScriptName,
-        [String]$LogFolder = $PowerShellConnectionsLogFolder
+        [String]$LogFolder = $PSConnectionsLogFolder
     )
 
     if (Test-Path -LiteralPath $LogFolder -PathType Container) {
