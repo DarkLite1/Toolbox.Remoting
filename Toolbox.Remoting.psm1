@@ -556,6 +556,7 @@ Function Write-ToLogFileHC {
         [Parameter(Mandatory)]
         [String]$ComputerName,
         [String]$ScriptName,
+        [Int]$RetryCount = 5,
         [String]$LogFolder = $PSConnectionsLogFolder
     )
 
@@ -566,12 +567,31 @@ Function Write-ToLogFileHC {
         }
         $logFile = Join-Path @joinParams
 
-        [PSCustomObject]@{
-            Date              = Get-Date
-            ScriptName        = $ScriptName
-            ComputerName      = $ComputerName
-            PowerShellVersion = $PowerShellVersion
-        } | Export-Csv -Append -Path $logFile
+        $i = 0
+        $success = $false
+
+        while (
+            (-not $success) -and
+            ($i -lt $RetryCount)
+        ) {
+            try {
+                $i++
+
+                [PSCustomObject]@{
+                    Date              = Get-Date
+                    ScriptName        = $ScriptName
+                    ComputerName      = $ComputerName
+                    PowerShellVersion = $PowerShellVersion
+                } | Export-Csv -Append -Path $logFile -EA 'Stop'
+
+                $success = $true
+            }
+            catch {
+                Write-Warning "File '$logFile' locked, waiting for unlock"
+                $global:Error.RemoveAt(0)
+                Start-Sleep -Seconds 1
+            }
+        }
     }
 }
 
