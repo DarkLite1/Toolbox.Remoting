@@ -241,7 +241,7 @@ Function Set-ComputerConfigurationHC {
                     }
 
                     #region Get OS Name
-                    $OS = Get-WmiObject -Class Win32_OperatingSystem
+                    $OS = Get-CimInstance -Class Win32_OperatingSystem
                     $OSCap = $OS.Caption
                     $OSArch = $OS.OSArchitecture
                     $OSType = $OS.OtherTypeDescription
@@ -533,7 +533,7 @@ Function Wait-MaxRunningJobsHC {
 
     Begin {
         Function Get-FreeMemoryHC {
-            (Get-WmiObject win32_OperatingSystem).FreePhysicalMemory * 1KB
+            (Get-CimInstance win32_OperatingSystem).FreePhysicalMemory * 1KB
         }
         Function Get-RunningJobsHC {
             @($Name).Where( { $_.State -eq 'Running' })
