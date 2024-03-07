@@ -1,12 +1,36 @@
-﻿Param (
+﻿#Requires -Version 7
+
+Param (
     [String[]]$PSConfigurationNames = @(
         'PowerShell.7.4.1',
         'PowerShell.7',
         'microsoft.powershell'
-    ),
-    [String]$PSConnectionsLogFolder = 'T:\Test\Brecht\PowerShell\Connection logs'
+    )
 )
 
+Function Enable-PSRemotingHC {
+    <#
+        .SYNOPSIS
+            Enable PS remoting on a remote computer
+    #>
+
+    Param (
+        [ValidateNotNullOrEmpty()]
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [String[]]$ComputerName,
+        [String]$PSExec = 'C:\Program Files\WindowsPowerShell\Modules\PSTools\PsExec.exe'
+    )
+
+    $computerName | ForEach-Object -Parallel {
+        try {
+            $computerName = $_
+            Start-Process -FilePath $using:PSExec -ArgumentList "\\$computerName -s pwsh.exe Enable-PSRemoting -Force"
+        }
+        catch {
+            throw "Failed to enable PS Remoting on '$computerName': $_"
+        }
+    }
+}
 Function Get-PortNumbersHC {
     <#
     .SYNOPSIS
@@ -47,76 +71,6 @@ Function Get-PortNumbersHC {
                 throw "Failed to get the open ports for process '$ProcessName': $_"
             }
         }
-    }
-}
-Function Get-PowerShellConnectableEndpointNameHC {
-    <#
-        .SYNOPSIS
-            Get the name of the latest enabled PowerShell endpoint where
-            a remote connection is allowed.
-    #>
-
-    [CmdletBinding()]
-    [OutputType([String])]
-    Param (
-        [Parameter(Mandatory)]
-        [String]$ComputerName,
-        [String]$ScriptName,
-        [String[]]$PSConfigurationNames = $PSConfigurationNames
-    )
-
-    if (-not $PSConfigurationNames) {
-        throw 'Get-PowerShellConnectableEndpointNameHC: No PSConfigurationNames found'
-    }
-
-    $firstError = $null
-    $connected = $false
-    $counter = @{
-        currentEndpoint = 0
-        totalEndpoints  = $PSConfigurationNames.Count
-    }
-
-    while (
-        (-not $connected) -and
-        ($counter.currentEndpoint -lt $counter.totalEndpoints)
-    ) {
-        try {
-            $endpointName = $PSConfigurationNames[$counter.currentEndpoint]
-
-            $params = @{
-                ComputerName      = $ComputerName
-                ConfigurationName = $endpointName
-                ScriptBlock       = { 1 }
-                ErrorAction       = 'Stop'
-            }
-            $null = Invoke-Command @params
-
-            $connected = $true
-
-            $endpointName
-        }
-        catch {
-            if (-not $firstError) {
-                $firstError = $_
-            }
-            $global:Error.RemoveAt(0)
-            Write-Warning "Failed connecting to PowerShell endpoint '$endpointName' on '$ComputerName'"
-        }
-        finally {
-            $counter.currentEndpoint++
-        }
-    }
-
-    if ($connected) {
-        $writeLogParams = @{
-            PowerShellVersion = $endpointName
-            ScriptName        = $ScriptName
-            ComputerName      = $ComputerName
-        }
-        Write-ToLogFileHC @writeLogParams
-    }
-    else {
-        Write-Error $firstError
     }
 }
 Function Get-PowerShellEndpointsHC {
@@ -178,9 +132,7 @@ Function Set-ComputerConfigurationHC {
             scripts.
 
         .DESCRIPTION
-            Set the following computer settings:
-            - Enable PSRemoting
-            - Set MaxMemoryPerShell
+            Set the correct WsMan settings
 
         .EXAMPLE
             Set-ComputerConfigurationHC PC1
@@ -192,143 +144,108 @@ Function Set-ComputerConfigurationHC {
         [ValidateNotNullOrEmpty()]
         [Parameter(Mandatory, ValueFromPipeline)]
         [String[]]$ComputerName,
-        [String]$PSExec = 'C:\Program Files\WindowsPowerShell\Modules\PSTools\PsExec.exe'
+        [String]$ConfigurationName = $PSConfigurationNames[0],
+        [hashtable]$WsmanSettings = @{
+            'WSMan:\localhost\Shell\MaxShellsPerUser'                                 = [Int32]::MaxValue
+            'WSMan:\localhost\Shell\MaxMemoryPerShellMB'                              = [Int32]::MaxValue
+            'WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB' = [Int32]::MaxValue
+            'WSMan:\localhost\Plugin\PowerShell.7\Quotas\MaxShellsPerUser'            = [Int32]::MaxValue
+            'WSMan:\localhost\Plugin\PowerShell.7.4.1\Quotas\MaxShellsPerUser'        = [Int32]::MaxValue
+        }
     )
 
-    Begin {
-        Write-Verbose "Configure computers for PowerShell remoting"
-    }
+    Invoke-Command -ComputerName $ComputerName -ConfigurationName $ConfigurationName -ScriptBlock {
+        Try {
+            $VerbosePreference = $Using:VerbosePreference
 
-    Process {
-        $PSRemotingTestedComputers = $ComputerName | Test-PsRemotingHC
+            $Result = [PSCustomObject]@{
+                ComputerName    = $ENV:COMPUTERNAME
+                ExecutionPolicy = $null
+                OSname          = $null
+                Status          = $null
+                Action          = @()
+                Error           = @()
+            }
 
-        $PSRemotingTestedComputers | Where-Object { -not $_.Enabled } |
-        ForEach-Object {
-            if (Test-Connection $_.ComputerName -Quiet) {
-                Write-Verbose "'$($_.ComputerName)' Enable PowerShell remoting"
+            #region Get OS Name
+            $OS = Get-CimInstance -Class Win32_OperatingSystem
+            $OSCap = $OS.Caption
+            $OSArch = $OS.OSArchitecture
+            $OSType = $OS.OtherTypeDescription
+            $OSCDSV = $OS.CSDVersion
 
-                Start-Process -FilePath $PSExec -ArgumentList  "\\$($_.ComputerName) -s powershell Enable-PSRemoting -Force"
-
-                $_.Enabled = $true
+            if (-not $OSArch) {
+                $Result.OSname = "$OSCap $OSType 32-bit $OSCDSV"
             }
             else {
-                Write-Warning "$($_.ComputerName) is offline"
+                $Result.OSname = "$OSCap $OSType $OSArch $OSCDSV".Replace('  ', '')
+            }
+            #endregion
+
+            #region Test Execution policy
+            if ((Get-ExecutionPolicy) -ne 'RemoteSigned') {
+                Set-ExecutionPolicy 'RemoteSigned' -Force
+
+                $Result.Action += "Set execution policy to 'RemoteSigned'"
+                $Result.Status = 'Updated'
+            }
+
+            $Result.ExecutionPolicy = Get-ExecutionPolicy
+            #endregion
+
+            #region Set WsMan settings
+            $restartWinRm = $false
+
+            $WsmanSettings = $using:WsmanSettings
+            $WsmanSettings.GetEnumerator().ForEach(
+                {
+                    try {
+                        $path = $_.Key
+                        $value = $_.Value
+
+                        if ((Get-Item -Path $path).Value -ne $value) {
+                            $null = Set-Item -Path $path -Value $value
+                            $restartWinRm = $true
+
+                            $Result.Action += "Set '$path' to '$value'"
+                            $Result.Status = 'Updated'
+                        }
+                    }
+                    catch {
+                        $result.Error += "Failed to set '$path' to '$value': $_"
+                        $Error.RemoveAt(0)
+                    }
+                }
+            )
+            #endregion
+
+            #region Restart WinR<
+            if ($restartWinRm) {
+                $null = Restart-Service winrm
+                $Result.Action += 'Restarted WinRM service'
+            }
+            #endregion
+
+            if (-not $Result.Status) {
+                $Result.Status = 'Ok'
+                Write-Verbose "'$ENV:COMPUTERNAME': Correctly configured"
+            }
+            else {
+                Write-Verbose "'$ENV:COMPUTERNAME': Updated configuration"
             }
         }
+        Catch {
+            $Result.Status = 'Error'
+            $Result.Error += $_
 
-        $EnabledComputerNames = (
-            $PSRemotingTestedComputers | Where-Object { $_.Enabled }
-        ).ComputerName
-
-        if ($EnabledComputerNames) {
-            $Session = New-PSSession -ComputerName $EnabledComputerNames
-
-            Invoke-Command -Session $Session -ScriptBlock {
-                Try {
-                    $VerbosePreference = $Using:VerbosePreference
-
-
-                    $Result = [PSCustomObject]@{
-                        ComputerName              = $ENV:COMPUTERNAME
-                        PowerShellVersion         = $null
-                        ExecutionPolicy           = $null
-                        MaxMemoryPerShellMB       = $null
-                        MaxMemoryPerShellMBPlugin = $null
-                        OSname                    = $null
-                        Status                    = $null
-                        Action                    = @()
-                        Error                     = $null
-                    }
-
-                    #region Get OS Name
-                    $OS = Get-CimInstance -Class Win32_OperatingSystem
-                    $OSCap = $OS.Caption
-                    $OSArch = $OS.OSArchitecture
-                    $OSType = $OS.OtherTypeDescription
-                    $OSCDSV = $OS.CSDVersion
-
-                    if (-not $OSArch) {
-                        $Result.OSname = "$OSCap $OSType 32-bit $OSCDSV"
-                    }
-                    else {
-                        $Result.OSname = "$OSCap $OSType $OSArch $OSCDSV".Replace('  ', '')
-                    }
-                    #endregion
-
-                    #region Test PowerShell version
-                    # because version 2.0 fails for the rest of the ScriptBlock
-                    $Result.PowerShellVersion = $PSVersionTable.PSVersion
-
-                    if ($PSVersionTable.PSVersion.Major -lt 4) {
-                        $Result.Status = 'Error'
-                        $Result.Error = 'PowerShell version outdated'
-                        $Result
-                        Exit-PSSession
-                    }
-                    #endregion
-
-                    #region Test Execution policy
-                    if ((Get-ExecutionPolicy) -ne 'RemoteSigned') {
-                        Set-ExecutionPolicy RemoteSigned -Force
-
-                        $Result.Action += "Set execution policy to 'RemoteSigned'"
-                        $Result.Status = 'Updated'
-                    }
-
-                    $Result.ExecutionPolicy = Get-ExecutionPolicy
-                    #endregion
-
-                    #region Test MaxMemoryPerShellMB
-                    if (-not (Get-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB).Value -ge 2048) {
-                        $null = Set-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB 2048
-                        $RestartWinRm = $true
-
-                        $Result.Action += "Shell MaxMemoryPerShellMB set to 2048"
-                        $Result.Status = 'Updated'
-                    }
-
-                    $Result.MaxMemoryPerShellMB = (Get-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB).Value
-
-
-                    if (-not (Get-Item WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB).Value -ge 2048) {
-                        $null = Set-Item WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB 2048
-                        $RestartWinRm = $true
-
-                        $Result.Action += "Shell MaxMemoryPerShellMB Plugin set to 2048"
-                        $Result.Status = 'Updated'
-                    }
-
-                    $Result.MaxMemoryPerShellMBPlugin = (Get-Item WSMan:\localhost\Plugin\Microsoft.PowerShell\Quotas\MaxMemoryPerShellMB).Value
-
-                    if ($RestartWinRm) {
-                        $null = Restart-Service winrm
-                        $Result.Action += "Restarted WinRM service"
-                    }
-                    #endregion
-
-                    if (-not $Result.Status) {
-                        $Result.Status = 'Ok'
-                        Write-Verbose "'$ENV:COMPUTERNAME': Correctly configured"
-                    }
-                    else {
-                        Write-Verbose "'$ENV:COMPUTERNAME': Updated configuration"
-                    }
-                }
-                Catch {
-                    $Result.Status = 'Error'
-                    $Result.Error = $_
-
-                    Write-Warning "'$ENV:COMPUTERNAME': $_"
-                }
-                Finally {
-                    $Result
-                }
-            }
+            Write-Warning "'$ENV:COMPUTERNAME': $_"
         }
-    }
-
-    End {
-        Get-PSSession | Remove-PSSession
+        Finally {
+            if ($Result.Error) {
+                $Result.Status = 'Error'
+            }
+            $Result
+        }
     }
 }
 Function Test-PortHC {
@@ -441,7 +358,8 @@ Function Test-PsRemotingHC {
         [String[]]$ComputerName,
         [PSCredential]$Credential,
         [ValidateSet('CredSSP', 'Basic', 'Default', 'Kerberos')]
-        [String]$Authentication
+        [String]$Authentication,
+        [String]$ConfigurationName = $PSConfigurationNames[0]
     )
 
     Process {
@@ -463,6 +381,10 @@ Function Test-PsRemotingHC {
 
                 if ($Authentication) {
                     $InvokeParams.Authentication = $Authentication
+                }
+
+                if ($ConfigurationName) {
+                    $InvokeParams.ConfigurationName = $ConfigurationName
                 }
 
                 $Test = Invoke-Command @InvokeParams -ScriptBlock { 1 }
@@ -546,51 +468,6 @@ Function Wait-MaxRunningJobsHC {
             ((Get-RunningJobsHC).Count -ge $MaxThreads)
         ) {
             $null = Wait-Job -Job $Name -Any
-        }
-    }
-}
-Function Write-ToLogFileHC {
-    Param (
-        [Parameter(Mandatory)]
-        [String]$PowerShellVersion,
-        [Parameter(Mandatory)]
-        [String]$ComputerName,
-        [String]$ScriptName,
-        [Int]$RetryCount = 5,
-        [String]$LogFolder = $PSConnectionsLogFolder
-    )
-
-    if (Test-Path -LiteralPath $LogFolder -PathType Container) {
-        $joinParams = @{
-            Path      = $LogFolder
-            ChildPath = (Get-Date).ToString('yyyyMMdd') + ' - connection log.csv'
-        }
-        $logFile = Join-Path @joinParams
-
-        $i = 0
-        $success = $false
-
-        while (
-            (-not $success) -and
-            ($i -lt $RetryCount)
-        ) {
-            try {
-                $i++
-
-                [PSCustomObject]@{
-                    Date              = Get-Date
-                    ScriptName        = $ScriptName
-                    ComputerName      = $ComputerName
-                    PowerShellVersion = $PowerShellVersion
-                } | Export-Csv -Append -Path $logFile -EA 'Stop'
-
-                $success = $true
-            }
-            catch {
-                Write-Warning "File '$logFile' locked, waiting for unlock"
-                $global:Error.RemoveAt(0)
-                Start-Sleep -Seconds 1
-            }
         }
     }
 }
